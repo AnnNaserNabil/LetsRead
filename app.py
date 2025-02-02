@@ -1,107 +1,132 @@
 import streamlit as st
 import requests
 import pandas as pd
-from itertools import product
-from collections import Counter
+import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.preprocessing import MultiLabelBinarizer
+from gensim import corpora
+from gensim.models import LdaModel
+import nltk
+from nltk.corpus import stopwords
+import re
+
+# Download NLTK stopwords
+nltk.download('stopwords')
+stop_words = set(stopwords.words('english'))
 
 # Open Library API base URL
-BASE_URL = "https://openlibrary.org"
-COVER_URL = "https://covers.openlibrary.org/b/id/"
+OPEN_LIBRARY_API = "https://openlibrary.org/search.json"
 
-# Literature topics, genres, and time frames
-literature_topics = [
-    "poetry", "drama", "prose", "epic", "satire", "fable", "gothic", "fantasy", "mythology", "romance", 
-    "horror", "mystery", "science fiction", "historical", "graphic novels", "dystopian", "short stories", 
-    "autobiography", "biography", "memoir", "travel", "philosophy", "psychology", "self-help", "spirituality", 
-    "classic", "contemporary", "war", "adventure", "crime", "detective", "thriller", "western", "comedy", 
-    "children's literature", "young adult", "fairy tales", "legends", "folklore", "literary criticism", "modernist"
-]
-
-genre_options = [
-    "fiction", "non-fiction", "mystery", "romance", "fantasy", "biography", "adventure", "horror", "thriller", 
-    "science fiction", "historical", "drama", "philosophy", "self-help", "psychology", "spirituality", "dystopian", 
-    "young adult", "children", "graphic novels"
-]
-
-time_frames = [
-    "1800-1820", "1821-1840", "1841-1860", "1861-1880", "1881-1900",
-    "1901-1920", "1921-1940", "1941-1960", "1961-1980", "1981-2000", "2001-2020"
-]
-
-# Function to search books using Open Library Search API
-def search_books(query, limit=100):
-    url = f"{BASE_URL}/search.json?q={query}&limit={limit}"
-    response = requests.get(url)
+# Function to fetch book data from Open Library
+def fetch_books(query, limit=100):
+    params = {"q": query, "limit": limit}
+    response = requests.get(OPEN_LIBRARY_API, params=params)
     if response.status_code == 200:
-        return response.json().get("docs", [])
-    return []
-
-# Function to get the most common books using TF-IDF and cosine similarity
-def get_top_books(books):
-    if not books:
+        data = response.json()
+        books = []
+        for doc in data.get("docs", []):
+            book = {
+                "title": doc.get("title", ""),
+                "author": doc.get("author_name", [""])[0],
+                "genre": doc.get("subject", []),
+                "year": doc.get("first_publish_year", None),
+                "description": doc.get("first_sentence", [""])[0] if doc.get("first_sentence") else ""
+            }
+            books.append(book)
+        return books
+    else:
+        st.error("Failed to fetch data from Open Library.")
         return []
-    
-    book_titles = [book.get("title", "") for book in books]
-    vectorizer = TfidfVectorizer(stop_words='english')
-    tfidf_matrix = vectorizer.fit_transform(book_titles)
-    similarity_matrix = cosine_similarity(tfidf_matrix)
-    
-    book_scores = Counter()
-    for i, row in enumerate(similarity_matrix):
-        book_scores[i] = sum(row)
-    
-    top_indices = [index for index, _ in book_scores.most_common(20)]
-    return [books[i] for i in top_indices]
+
+# Function to preprocess text
+def preprocess_text(text):
+    text = re.sub(r'\W', ' ', text.lower())  # Remove special characters and lowercase
+    tokens = text.split()
+    tokens = [word for word in tokens if word not in stop_words]  # Remove stopwords
+    return ' '.join(tokens)
+
+# Function to extract topics using LDA
+def extract_topics(descriptions, num_topics=5):
+    processed_texts = [preprocess_text(desc) for desc in descriptions]
+    tokenized_texts = [text.split() for text in processed_texts]
+    dictionary = corpora.Dictionary(tokenized_texts)
+    corpus = [dictionary.doc2bow(text) for text in tokenized_texts]
+    lda_model = LdaModel(corpus, num_topics=num_topics, id2word=dictionary, passes=15)
+    topics = []
+    for text in tokenized_texts:
+        bow = dictionary.doc2bow(text)
+        topic_distribution = lda_model.get_document_topics(bow)
+        topics.append(max(topic_distribution, key=lambda x: x[1])[0])
+    return topics
+
+# Function to compute similarity and recommend books
+def recommend_books(input_books, all_books, top_n=20):
+    # Combine features
+    input_descriptions = [book["description"] for book in input_books]
+    all_descriptions = [book["description"] for book in all_books]
+    input_genres = [book["genre"] for book in input_books]
+    all_genres = [book["genre"] for book in all_books]
+
+    # Extract topics
+    input_topics = extract_topics(input_descriptions)
+    all_topics = extract_topics(all_descriptions)
+
+    # Encode genres
+    mlb = MultiLabelBinarizer()
+    input_genres_encoded = mlb.fit_transform(input_genres)
+    all_genres_encoded = mlb.transform(all_genres)
+
+    # TF-IDF for descriptions
+    vectorizer = TfidfVectorizer()
+    input_tfidf = vectorizer.fit_transform(input_descriptions)
+    all_tfidf = vectorizer.transform(all_descriptions)
+
+    # Combine features
+    input_features = np.hstack((input_tfidf.toarray(), input_genres_encoded, np.array(input_topics).reshape(-1, 1)))
+    all_features = np.hstack((all_tfidf.toarray(), all_genres_encoded, np.array(all_topics).reshape(-1, 1)))
+
+    # Compute similarity
+    similarity_scores = cosine_similarity(input_features, all_features)
+    avg_similarity = similarity_scores.mean(axis=0)
+
+    # Rank and recommend
+    ranked_indices = np.argsort(avg_similarity)[::-1][:top_n]
+    recommendations = [all_books[i] for i in ranked_indices]
+    return recommendations
 
 # Streamlit App
 def main():
-    st.set_page_config(page_title="Book Recommendation App", layout="wide")
-    st.title("📚 Book Recommendation Dashboard")
-    st.write("Discover books based on your preferences!")
+    st.title("Book Recommendation System")
+    st.write("Input 100 books to get recommendations based on topic, genre, and a 20-year time frame.")
 
-    # Sidebar for user selections
-    with st.sidebar:
-        st.header("Filter Books")
-        selected_topics = st.multiselect("Select Literature Topics:", literature_topics)
-        selected_genres = st.multiselect("Select Genres:", genre_options)
-        selected_time_frames = st.multiselect("Select Time Frames:", time_frames)
-        if st.button("Get Recommendations"):
-            st.session_state.recommend = True
-    
-    if "recommend" in st.session_state:
-        st.subheader("Top 20 Books Based on Your Selections:")
-        all_queries = [f"{topic} {genre} {time}" for topic, genre, time in product(selected_topics, selected_genres, selected_time_frames)]
-        books = []
-        
-        for query in all_queries:
-            books.extend(search_books(query, limit=100))
-        
-        top_books = get_top_books(books)
-        
-        if top_books:
-            for book in top_books:
-                title = book.get("title", "Unknown Title")
-                authors = book.get("author_name", ["Unknown Author"])
-                publish_year = book.get("first_publish_year", "Unknown Year")
-                cover_id = book.get("cover_i")
-                
-                st.markdown("---")
-                col1, col2 = st.columns([1, 2])
-                
-                with col1:
-                    if cover_id:
-                        st.image(f"{COVER_URL}{cover_id}-M.jpg", use_container_width=True)
-                    else:
-                        st.write("No Cover Available")
-                
-                with col2:
-                    st.subheader(title)
-                    st.write(f"**Author:** {', '.join(authors)}")
-                    st.write(f"**Publish Year:** {publish_year}")
-        else:
-            st.write("No books found for your selections.")
+    # Input query
+    query = st.text_input("Enter a search query (e.g., 'science fiction'):")
+    if not query:
+        st.stop()
+
+    # Fetch books
+    st.write("Fetching books...")
+    books = fetch_books(query, limit=100)
+    if not books:
+        st.stop()
+
+    # Filter by time frame
+    st.write("Filtering by time frame...")
+    current_year = pd.Timestamp.now().year
+    filtered_books = [book for book in books if book["year"] and (current_year - 20) <= book["year"] <= current_year]
+
+    # Display input books
+    st.write(f"Found {len(filtered_books)} books within the last 20 years.")
+    if st.checkbox("Show input books"):
+        st.write(pd.DataFrame(filtered_books))
+
+    # Recommend books
+    if st.button("Get Recommendations"):
+        st.write("Generating recommendations...")
+        recommendations = recommend_books(filtered_books, filtered_books)
+        st.write("Top 20 Recommendations:")
+        st.write(pd.DataFrame(recommendations))
 
 if __name__ == "__main__":
     main()
