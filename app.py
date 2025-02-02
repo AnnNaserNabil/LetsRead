@@ -1,24 +1,18 @@
 import streamlit as st
 import requests
+from itertools import product
 
 # Open Library API base URL
 BASE_URL = "https://openlibrary.org"
 COVER_URL = "https://covers.openlibrary.org/b/id/"
 
-# Expanded literature topics
+# Literature topics, genres, and time frames
 literature_topics = [
     "poetry", "drama", "prose", "epic", "satire", "fable", "gothic", "fantasy", "mythology", "romance", 
     "horror", "mystery", "science fiction", "historical", "graphic novels", "dystopian", "short stories", 
     "autobiography", "biography", "memoir", "travel", "philosophy", "psychology", "self-help", "spirituality", 
     "classic", "contemporary", "war", "adventure", "crime", "detective", "thriller", "western", "comedy", 
-    "children's literature", "young adult", "fairy tales", "legends", "folklore", "literary criticism", 
-    "philosophical fiction", "experimental", "absurdist", "postmodern", "cyberpunk", "steampunk", "urban fantasy", 
-    "weird fiction", "utopian", "magical realism", "epistolary", "bildungsroman", "chivalric romance", "feminist literature", 
-    "noir", "psychological thriller", "supernatural", "transgressive fiction", "realism", "naturalism", "modernist", 
-    "postcolonial", "existentialist", "metafiction", "picaresque", "tragicomedy", "literary nonfiction", "hard science fiction", 
-    "soft science fiction", "military fiction", "political fiction", "climate fiction", "domestic fiction", "regional literature", 
-    "Afrofuturism", "eco-fiction", "protest literature", "philosophical essays", "travel writing", "cultural studies", 
-    "religious studies", "mythopoeia", "hagiography", "menippean satire", "lyrical prose", "proletarian literature", "war poetry"
+    "children's literature", "young adult", "fairy tales", "legends", "folklore", "literary criticism", "modernist"
 ]
 
 genre_options = [
@@ -27,8 +21,13 @@ genre_options = [
     "young adult", "children", "graphic novels"
 ]
 
+time_frames = [
+    "1800-1820", "1821-1840", "1841-1860", "1861-1880", "1881-1900",
+    "1901-1920", "1921-1940", "1941-1960", "1961-1980", "1981-2000", "2001-2020"
+]
+
 # Function to search books using Open Library Search API
-def search_books(query, limit=20):
+def search_books(query, limit=10):
     url = f"{BASE_URL}/search.json?q={query}&limit={limit}"
     response = requests.get(url)
     if response.status_code == 200:
@@ -50,19 +49,26 @@ def main():
 
     # User selections in sidebar
     with st.sidebar:
-        selected_topic = st.selectbox("Select Literature Topic:", literature_topics)
-        selected_genre = st.selectbox("Select Genre:", genre_options)
+        selected_topics = st.multiselect("Select Literature Topics:", literature_topics)
+        selected_genres = st.multiselect("Select Genres:", genre_options)
+        selected_time_frames = st.multiselect("Select Time Frames:", time_frames)
         st.write("Press the button below to get recommendations.")
         if st.button("Get Recommendations"):
             st.session_state.recommend = True
     
     if "recommend" in st.session_state:
         st.subheader("Top 20 Books Based on Your Selections:")
-        query = f"{selected_topic} {selected_genre}"
-        books = search_books(query, limit=20)
-
-        if books:
-            for book in books:
+        all_queries = [f"{topic} {genre} {time}" for topic, genre, time in product(selected_topics, selected_genres, selected_time_frames)]
+        books = []
+        
+        for query in all_queries:
+            books.extend(search_books(query, limit=5))
+        
+        unique_books = {book["key"]: book for book in books}.values()
+        top_books = list(unique_books)[:20]
+        
+        if top_books:
+            for book in top_books:
                 title = book.get("title", "Unknown Title")
                 author = ", ".join(book.get("author_name", ["Unknown Author"]))
                 publish_year = book.get("first_publish_year", "Unknown Year")
