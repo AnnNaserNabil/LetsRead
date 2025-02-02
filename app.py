@@ -1,6 +1,10 @@
 import streamlit as st
 import requests
+import pandas as pd
 from itertools import product
+from collections import Counter
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 # Open Library API base URL
 BASE_URL = "https://openlibrary.org"
@@ -27,28 +31,29 @@ time_frames = [
 ]
 
 # Function to search books using Open Library Search API
-def search_books(query, limit=10):
+def search_books(query, limit=100):
     url = f"{BASE_URL}/search.json?q={query}&limit={limit}"
     response = requests.get(url)
     if response.status_code == 200:
         return response.json().get("docs", [])
     return []
 
-# Function to fetch book details
-def fetch_book_details(olid):
-    url = f"{BASE_URL}/works/{olid}.json"
-    response = requests.get(url)
-    if response.status_code == 200:
-        return response.json()
-    return None
-
-# Function to fetch author details
-def fetch_author_details(author_key):
-    url = f"{BASE_URL}/authors/{author_key}.json"
-    response = requests.get(url)
-    if response.status_code == 200:
-        return response.json()
-    return None
+# Function to get the most common books using TF-IDF and cosine similarity
+def get_top_books(books):
+    if not books:
+        return []
+    
+    book_titles = [book.get("title", "") for book in books]
+    vectorizer = TfidfVectorizer(stop_words='english')
+    tfidf_matrix = vectorizer.fit_transform(book_titles)
+    similarity_matrix = cosine_similarity(tfidf_matrix)
+    
+    book_scores = Counter()
+    for i, row in enumerate(similarity_matrix):
+        book_scores[i] = sum(row)
+    
+    top_indices = [index for index, _ in book_scores.most_common(20)]
+    return [books[i] for i in top_indices]
 
 # Streamlit App
 def main():
@@ -71,26 +76,16 @@ def main():
         books = []
         
         for query in all_queries:
-            books.extend(search_books(query, limit=5))
+            books.extend(search_books(query, limit=100))
         
-        unique_books = {book["key"]: book for book in books}.values()
-        top_books = list(unique_books)[:20]
+        top_books = get_top_books(books)
         
         if top_books:
             for book in top_books:
                 title = book.get("title", "Unknown Title")
-                authors = book.get("author_key", [])
-                author_names = ", ".join(book.get("author_name", ["Unknown Author"]))
+                authors = book.get("author_name", ["Unknown Author"])
                 publish_year = book.get("first_publish_year", "Unknown Year")
-                olid = book.get("key", "").split("/")[-1]
                 cover_id = book.get("cover_i")
-                description = "No description available."
-                
-                book_details = fetch_book_details(olid)
-                if book_details:
-                    description = book_details.get("description", description)
-                    if isinstance(description, dict):
-                        description = description.get("value", "No description available.")
                 
                 st.markdown("---")
                 col1, col2 = st.columns([1, 2])
@@ -103,17 +98,8 @@ def main():
                 
                 with col2:
                     st.subheader(title)
-                    st.write(f"**Author:** {author_names}")
+                    st.write(f"**Author:** {', '.join(authors)}")
                     st.write(f"**Publish Year:** {publish_year}")
-                    st.write(f"**Description:** {description}")
-                    
-                    if authors:
-                        author_details = fetch_author_details(authors[0])
-                        if author_details and "photos" in author_details:
-                            author_image_id = author_details["photos"][0]
-                            st.image(f"{COVER_URL}{author_image_id}-M.jpg", width=100, caption=author_names)
-                        else:
-                            st.write("No Author Image Available")
         else:
             st.write("No books found for your selections.")
 
