@@ -13,6 +13,15 @@ def fetch_books_by_subject(subject, limit=50):
     else:
         return None
 
+# Function to fetch book details by Open Library ID (OLID)
+def fetch_book_details(olid):
+    url = f"{BASE_URL}/works/{olid}.json"
+    response = requests.get(url)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        return None
+
 # Streamlit app
 def main():
     st.title("Book Recommendation App")
@@ -54,7 +63,16 @@ def main():
                 st.write(f"Fetching books for: **{query.replace('_', ' ')}**")
                 book_data = fetch_books_by_subject(query)
                 if book_data and 'works' in book_data:
-                    all_books.extend(book_data['works'][:50])  # Add top 50 books for each query
+                    for work in book_data['works']:
+                        # Fetch additional details for each book using its OLID
+                        book_details = fetch_book_details(work['key'].split("/")[-1])
+                        if book_details:
+                            all_books.append({
+                                "title": book_details.get("title", "N/A"),
+                                "author": book_details.get("authors", [{}])[0].get("name", "N/A"),
+                                "description": book_details.get("description", "No description available."),
+                                "publish_date": book_details.get("first_publish_date", "N/A")
+                            })
 
                 # Update progress bar
                 progress_bar.progress((i + 1) / total_queries)
@@ -62,10 +80,11 @@ def main():
             # Display all fetched books
             if all_books:
                 st.write(f"Total books fetched: **{len(all_books)}**")
-                for i, work in enumerate(all_books[:50], 1):  # Display top 50 books overall
-                    st.write(f"**{i}. Title:** {work.get('title', 'N/A')}")
-                    st.write(f"**Author:** {work.get('authors', [{}])[0].get('name', 'N/A')}")
-                    st.write(f"**Description:** {work.get('description', 'No description available.')}")
+                for i, book in enumerate(all_books[:50], 1):  # Display top 50 books overall
+                    st.write(f"**{i}. Title:** {book['title']}")
+                    st.write(f"**Author:** {book['author']}")
+                    st.write(f"**Publish Date:** {book['publish_date']}")
+                    st.write(f"**Description:** {book['description']}")
                     st.write("---")
             else:
                 st.write("No books found for your selections.")
