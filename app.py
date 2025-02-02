@@ -42,17 +42,26 @@ def fetch_book_details(olid):
         return response.json()
     return None
 
+# Function to fetch author details
+def fetch_author_details(author_key):
+    url = f"{BASE_URL}/authors/{author_key}.json"
+    response = requests.get(url)
+    if response.status_code == 200:
+        return response.json()
+    return None
+
 # Streamlit App
 def main():
-    st.title("Book Recommendation App")
+    st.set_page_config(page_title="Book Recommendation App", layout="wide")
+    st.title("📚 Book Recommendation Dashboard")
     st.write("Discover books based on your preferences!")
 
-    # User selections in sidebar
+    # Sidebar for user selections
     with st.sidebar:
+        st.header("Filter Books")
         selected_topics = st.multiselect("Select Literature Topics:", literature_topics)
         selected_genres = st.multiselect("Select Genres:", genre_options)
         selected_time_frames = st.multiselect("Select Time Frames:", time_frames)
-        st.write("Press the button below to get recommendations.")
         if st.button("Get Recommendations"):
             st.session_state.recommend = True
     
@@ -70,10 +79,10 @@ def main():
         if top_books:
             for book in top_books:
                 title = book.get("title", "Unknown Title")
-                author = ", ".join(book.get("author_name", ["Unknown Author"]))
+                authors = book.get("author_key", [])
+                author_names = ", ".join(book.get("author_name", ["Unknown Author"]))
                 publish_year = book.get("first_publish_year", "Unknown Year")
                 olid = book.get("key", "").split("/")[-1]
-                pages = book.get("number_of_pages_median", "Unknown Pages")
                 cover_id = book.get("cover_i")
                 description = "No description available."
                 
@@ -83,14 +92,28 @@ def main():
                     if isinstance(description, dict):
                         description = description.get("value", "No description available.")
                 
-                st.subheader(title)
-                st.write(f"**Author:** {author}")
-                st.write(f"**Publish Year:** {publish_year}")
-                st.write(f"**Total Pages:** {pages}")
-                st.write(f"**Description:** {description}")
-                if cover_id:
-                    st.image(f"{COVER_URL}{cover_id}-M.jpg", caption=title)
-                st.write("---")
+                st.markdown("---")
+                col1, col2 = st.columns([1, 2])
+                
+                with col1:
+                    if cover_id:
+                        st.image(f"{COVER_URL}{cover_id}-M.jpg", use_column_width=True)
+                    else:
+                        st.write("No Cover Available")
+                
+                with col2:
+                    st.subheader(title)
+                    st.write(f"**Author:** {author_names}")
+                    st.write(f"**Publish Year:** {publish_year}")
+                    st.write(f"**Description:** {description}")
+                    
+                    if authors:
+                        author_details = fetch_author_details(authors[0])
+                        if author_details and "photos" in author_details:
+                            author_image_id = author_details["photos"][0]
+                            st.image(f"{COVER_URL}{author_image_id}-M.jpg", width=100, caption=author_names)
+                        else:
+                            st.write("No Author Image Available")
         else:
             st.write("No books found for your selections.")
 
