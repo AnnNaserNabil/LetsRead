@@ -97,7 +97,7 @@ def main():
                 
                 with col1:
                     if cover_id:
-                        st.image(f"{COVER_URL}{cover_id}-M.jpg", use_column_width=True)
+                        st.image(f"{COVER_URL}{cover_id}-M.jpg", use_container_width=True)
                     else:
                         st.write("No Cover Available")
                 
