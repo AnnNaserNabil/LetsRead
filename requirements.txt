@@ -1,5 +1,7 @@
-streamlit
-pandas
-itertools
-collections
-scikit-learn
+streamlit==1.26.0
+requests==2.31.0
+pandas==2.0.3
+numpy==1.24.3
+scikit-learn==1.3.0
+gensim==4.3.2
+nltk==3.8.1
